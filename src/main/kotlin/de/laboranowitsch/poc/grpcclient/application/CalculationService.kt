@@ -9,8 +9,10 @@ import de.laboranowitsch.poc.grpcclient.common.logger
 import de.laboranowitsch.poc.grpcclient.interfaces.CalculationPort
 import de.laboranowitsch.poc.grpcclient.protobuf.CalculationRequest
 import de.laboranowitsch.poc.grpcclient.protobuf.CalculationResponse
+import de.laboranowitsch.poc.grpcclient.protobuf.CalculationStatus
 import de.laboranowitsch.poc.grpcclient.protobuf.CalculationStatus.Status
 import de.laboranowitsch.poc.grpcclient.protobuf.InputParamItem
+import de.laboranowitsch.poc.grpcclient.protobuf.OutputChunk
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.launch
@@ -48,53 +50,29 @@ class CalculationService(
         return jobId
     }
 
+
+    override fun getCalculationStatus(jobId: String): String? = jobRepository.findById(jobId)?.status
+
+    override fun getCalculationResults(jobId: String): List<String>? = jobRepository
+        .getResults(jobId)?.map { it.resultValue }
+
+
     private suspend fun processJobInBackground(jobId: String, inputs: List<String>) {
         logger.info("[{}] Starting background processing...", jobId)
-        val inputItemsProto = inputs.map { InputParamItem.newBuilder().setValue(it).build() }
-        val request = CalculationRequest.newBuilder()
-            .setJobId(jobId)
-            .addAllInputItems(inputItemsProto)
-            .build()
+        val request = prepareCalculationRequest(jobId, inputs)
         var receivedItemCount = 0L
 
         try {
             externalComputationPort.processCalculation(request)
-                .catch { e ->
-                    val errorMessage = "Error in gRPC stream for job $jobId: ${e.message}"
-                    logger.error(errorMessage, e)
-                    jobRepository.updateStatus(
-                        jobId,
-                        Status.FAILED.name,
-                        "gRPC stream error: ${e.message}",
-                    )
-                    throw e
-                }
+                .catch { e -> handleStreamError(jobId, e) }
                 .collect { response ->
                     when (response.responseTypeCase) {
                         CalculationResponse.ResponseTypeCase.STATUS_UPDATE -> {
-                            val statusUpdate = response.statusUpdate
-                            logger.info("[{}] Status update received: {}", jobId, statusUpdate.status)
-                            jobRepository.updateStatus(
-                                jobId,
-                                statusUpdate.status.name,
-                                statusUpdate.message,
-                            )
+                            handleStatusUpdate(jobId, response.statusUpdate)
                         }
 
                         CalculationResponse.ResponseTypeCase.OUTPUT_CHUNK -> {
-                            val outputChunk = response.outputChunk
-                            logger.debug("[{}] Received output chunk with {} items.", jobId, outputChunk.itemsCount)
-                            outputChunk.itemsList.forEach { outputItem ->
-                                val processedResult = ProcessedResult(
-                                    jobId = jobId,
-                                    resultValue = outputItem.value
-                                )
-                                jobRepository.addResult(jobId, processedResult)
-                                receivedItemCount++
-                            }
-                            if (receivedItemCount % 100 == 0L) {
-                                logger.debug("[{}] Processed {} total result items.", jobId, receivedItemCount)
-                            }
+                            receivedItemCount = processOutputChunk(jobId, response.outputChunk, receivedItemCount)
                         }
 
                         CalculationResponse.ResponseTypeCase.RESPONSETYPE_NOT_SET, null -> {
@@ -103,44 +81,93 @@ class CalculationService(
                     }
                 }
 
-            // Flow completed
-            logger.info(
-                "[{}] Response stream processing completed. Processed {} total result items.",
-                jobId,
-                receivedItemCount,
-            )
-            val finalJob = jobRepository.findById(jobId)
-            if (
-                finalJob?.status != Status.FAILED.name
-                && finalJob?.status != Status.FINISHED.name
-            ) {
-                logger.warn(
-                    "[{}] Stream ended but final status was {}. Setting to FINISHED (assumed success).",
-                    jobId,
-                    finalJob?.status,
-                )
-                jobRepository.updateStatus(
-                    jobId,
-                    Status.FINISHED.name,
-                    "Stream completed.",
-                ) // Assume success if no failure/finish received
-            }
+            handleFlowCompletion(jobId, receivedItemCount)
 
         } catch (e: Exception) {
-            val errorMessage = "Error collecting/processing results for job $jobId: ${e.message}"
-            logger.error(errorMessage, e)
-            if (jobRepository.findById(jobId)?.status != Status.FAILED.name) {
-                jobRepository.updateStatus(
-                    jobId,
-                    Status.FAILED.name,
-                    "Processing error: ${e.message}",
-                )
-            }
+            handleProcessingException(jobId, e)
         }
     }
 
-    override fun getCalculationStatus(jobId: String): String? = jobRepository.findById(jobId)?.status
+    internal fun prepareCalculationRequest(jobId: String, inputs: List<String>): CalculationRequest =
+        CalculationRequest.newBuilder()
+            .setJobId(jobId)
+            .addAllInputItems(inputs.map { InputParamItem.newBuilder().setValue(it).build() })
+            .build()
 
-    override fun getCalculationResults(jobId: String): List<String>? = jobRepository
-        .getResults(jobId)?.map { it.resultValue }
+    internal fun handleStreamError(jobId: String, e: Throwable) {
+        val errorMessage = "Error in gRPC stream for job $jobId: ${e.message}"
+        logger.error(errorMessage, e)
+        jobRepository.updateStatus(
+            jobId,
+            Status.FAILED.name,
+            "gRPC stream error: ${e.message}",
+        )
+        throw e
+    }
+
+    internal fun handleStatusUpdate(jobId: String, statusUpdate: CalculationStatus) {
+        logger.info("[{}] Status update received: {}", jobId, statusUpdate.status)
+        jobRepository.updateStatus(
+            jobId,
+            statusUpdate.status.name,
+            statusUpdate.message,
+        )
+    }
+
+    internal fun processOutputChunk(
+        jobId: String,
+        outputChunk: OutputChunk,
+        currentCount: Long
+    ): Long {
+        var receivedItemCount = currentCount
+        logger.debug("[{}] Received output chunk with {} items.", jobId, outputChunk.itemsCount)
+        outputChunk.itemsList.forEach { outputItem ->
+            val processedResult = ProcessedResult(
+                jobId = jobId,
+                resultValue = outputItem.value
+            )
+            jobRepository.addResult(jobId, processedResult)
+            receivedItemCount++
+        }
+        if (receivedItemCount % 100 == 0L) {
+            logger.debug("[{}] Processed {} total result items.", jobId, receivedItemCount)
+        }
+        return receivedItemCount
+    }
+
+    internal fun handleFlowCompletion(jobId: String, receivedItemCount: Long) {
+        logger.info(
+            "[{}] Response stream processing completed. Processed {} total result items.",
+            jobId,
+            receivedItemCount,
+        )
+        val finalJob = jobRepository.findById(jobId)
+        if (
+            finalJob?.status != Status.FAILED.name
+            && finalJob?.status != Status.FINISHED.name
+        ) {
+            logger.warn(
+                "[{}] Stream ended but final status was {}. Setting to FINISHED (assumed success).",
+                jobId,
+                finalJob?.status,
+            )
+            jobRepository.updateStatus(
+                jobId,
+                Status.FINISHED.name,
+                "Stream completed.",
+            ) // Assume success if no failure/finish received
+        }
+    }
+
+    internal fun handleProcessingException(jobId: String, e: Exception) {
+        val errorMessage = "Error collecting/processing results for job $jobId: ${e.message}"
+        logger.error(errorMessage, e)
+        if (jobRepository.findById(jobId)?.status != Status.FAILED.name) {
+            jobRepository.updateStatus(
+                jobId,
+                Status.FAILED.name,
+                "Processing error: ${e.message}",
+            )
+        }
+    }
 }
