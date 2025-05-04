@@ -1,0 +1,51 @@
+### Start Calculation Job
+POST http://localhost:8489/api/calculate/start
+Content-Type: application/json
+
+{
+  "inputs": ["value1", "value2", "value3"]
+}
+
+> {%
+    client.test("Request executed successfully", function() {
+        client.assert(response.status === 202, "Response status is not 202");
+        client.assert(response.body.jobId !== undefined, "No job ID in response");
+        client.global.set("jobId", response.body.jobId);
+    });
+%}
+
+### Get Calculation Status
+GET http://localhost:8489/api/calculate/{{jobId}}/status
+
+### Get Calculation Results
+GET http://localhost:8489/api/calculate/{{jobId}}/results
+
+### Start Calculation with Large Dataset
+POST http://localhost:8489/api/calculate/start
+Content-Type: application/json
+
+{
+  "inputs": ["item1", "item2", "item3", "item4", "item5", "item6", "item7", "item8", "item9", "item10"]
+}
+
+> {%
+    client.test("Large dataset request executed", function() {
+        client.assert(response.status === 202, "Response status is not 202");
+        client.global.set("largeJobId", response.body.jobId);
+    });
+%}
+
+
+### Get Large Calculation Status
+GET http://localhost:8489/api/calculate/{{largeJobId}}/status
+
+### Get Large Calculation Results
+GET http://localhost:8489/api/calculate/{{largeJobId}}/results
+
+### Start Invalid Calculation (Empty Input)
+POST http://localhost:8489/api/calculate/start
+Content-Type: application/json
+
+{
+  "inputs": []
+}

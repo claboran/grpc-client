@@ -1,0 +1,56 @@
+syntax = "proto3";
+
+option java_multiple_files = true;
+option java_package = "de.laboranowitsch.poc.grpcclient.protobuf";
+option java_outer_classname = "ComputationProto";
+
+package computation;
+
+// --- Component Messages ---
+
+message InputParamItem {
+  string value = 1;
+}
+
+message OutputParamItem {
+  string value = 1;
+}
+
+// Chunk of output items for streaming response
+message OutputChunk {
+  repeated OutputParamItem items = 1;
+}
+
+message CalculationStatus {
+  enum Status {
+    UNKNOWN = 0;
+    ACCEPTED = 1;     // Server acknowledged the job request & input
+    IN_PROGRESS = 2;  // Calculation is running
+    FINISHED = 3;     // Calculation successful, results streaming/available
+    FAILED = 4;       // Calculation failed
+  }
+  Status status = 1;
+  string message = 2; // Optional details
+}
+
+// --- Main Request/Response Messages ---
+
+message CalculationRequest {
+  string job_id = 1;                 // Unique ID for this calculation job
+  repeated InputParamItem input_items = 2; // List of input items (up to 1000)
+}
+
+message CalculationResponse {
+  string job_id = 1; // Correlate response to the job
+  oneof response_type {
+    CalculationStatus status_update = 2; // Send a status update
+    OutputChunk output_chunk = 3;    // Send a chunk of output items
+  }
+}
+
+// --- Service Definition ---
+
+service ComputationService {
+  // Unary request (with list of inputs), Server stream response (status and output chunks)
+  rpc ProcessCalculation (CalculationRequest) returns (stream CalculationResponse);
+}
