@@ -67,17 +67,18 @@ class CalculationService(
                 .catch { e -> handleStreamError(jobId, e) }
                 .collect { response ->
                     when (response.responseTypeCase) {
-                        CalculationResponse.ResponseTypeCase.STATUS_UPDATE -> {
+                        CalculationResponse.ResponseTypeCase.STATUS_UPDATE ->
                             handleStatusUpdate(jobId, response.statusUpdate)
-                        }
 
-                        CalculationResponse.ResponseTypeCase.OUTPUT_CHUNK -> {
-                            receivedItemCount = processOutputChunk(jobId, response.outputChunk, receivedItemCount)
-                        }
+                        CalculationResponse.ResponseTypeCase.OUTPUT_CHUNK ->
+                            receivedItemCount = processOutputChunk(
+                                jobId,
+                                response.outputChunk,
+                                receivedItemCount,
+                            )
 
-                        CalculationResponse.ResponseTypeCase.RESPONSETYPE_NOT_SET, null -> {
+                        CalculationResponse.ResponseTypeCase.RESPONSETYPE_NOT_SET, null ->
                             logger.warn("[{}] Received response with unknown or unset type.", jobId)
-                        }
                     }
                 }
 
