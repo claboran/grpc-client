@@ -5,7 +5,6 @@ import de.laboranowitsch.poc.grpcclient.protobuf.CalculationResponse
 import de.laboranowitsch.poc.grpcclient.protobuf.ComputationServiceGrpcKt
 import io.grpc.Status
 import io.grpc.StatusRuntimeException
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
@@ -17,7 +16,6 @@ import org.junit.jupiter.api.extension.ExtendWith
 import org.mockito.Mock
 import org.mockito.junit.jupiter.MockitoExtension
 import org.mockito.kotlin.any
-import org.mockito.kotlin.eq
 import org.mockito.kotlin.whenever
 
 @ExtendWith(MockitoExtension::class)
