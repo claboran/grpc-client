@@ -1,26 +1,41 @@
 package de.laboranowitsch.poc.grpcclient.application
 
-import com.ninjasquad.springmockk.MockkBean
 import de.laboranowitsch.poc.grpcclient.application.model.CalculationJob
 import de.laboranowitsch.poc.grpcclient.application.ports.CalculationJobRepository
+import de.laboranowitsch.poc.grpcclient.application.ports.ExternalComputationPort
 import de.laboranowitsch.poc.grpcclient.protobuf.CalculationStatus
 import de.laboranowitsch.poc.grpcclient.protobuf.OutputChunk
 import de.laboranowitsch.poc.grpcclient.protobuf.OutputParamItem
-import io.mockk.every
-import io.mockk.verify
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
-import org.springframework.beans.factory.annotation.Autowired
-import org.springframework.boot.test.context.SpringBootTest
+import org.junit.jupiter.api.extension.ExtendWith
+import org.mockito.Mock
+import org.mockito.junit.jupiter.MockitoExtension
+import org.mockito.kotlin.*
 
-@SpringBootTest
+@ExtendWith(MockitoExtension::class)
 class CalculationServiceTest {
 
-    @MockkBean
+    @Mock
     private lateinit var jobRepository: CalculationJobRepository
 
-    @Autowired
+    @Mock
+    private lateinit var externalComputationPort: ExternalComputationPort
+
     private lateinit var calculationService: CalculationService
+
+    @BeforeEach
+    fun setup() {
+        calculationService = CalculationService(
+            externalComputationPort,
+            jobRepository,
+            CoroutineScope(Dispatchers.Unconfined)
+        )
+    }
 
     @Test
     fun `prepareCalculationRequest should create request with correct job ID and inputs`() {
@@ -49,17 +64,17 @@ class CalculationServiceTest {
             .build()
 
         // Add this line to define mock behavior
-        every { jobRepository.updateStatus(any(), any(), any()) } returns Unit
+        doNothing().whenever(jobRepository).updateStatus(any(), any(), any())
 
         // Act
         calculationService.handleStatusUpdate(jobId, statusUpdate)
 
         // Assert
-        verify { jobRepository.updateStatus(
+        verify(jobRepository).updateStatus(
             jobId,
             "IN_PROGRESS",
             "Processing job"
-        )}
+        )
     }
 
     @Test
@@ -76,13 +91,13 @@ class CalculationServiceTest {
             .addItems(item2)
             .build()
 
-        every { jobRepository.addResult(any(), any()) } returns Unit
+        doNothing().whenever(jobRepository).addResult(any(), any())
 
         // Act
         val newCount = calculationService.processOutputChunk(jobId, outputChunk, currentCount)
 
         // Assert
-        assertEquals(7L, newCount) // 5 + 2 new items
+        assertThat(newCount).isEqualTo(7L) // 5 + 2 new items
     }
 
     @Test
@@ -97,18 +112,18 @@ class CalculationServiceTest {
             inputCount = 5,
             status = "PROCESSING"
         )
-        every { jobRepository.findById(jobId) } returns job
-        every { jobRepository.updateStatus(any(), any(), any()) } returns Unit
+        whenever(jobRepository.findById(jobId)).thenReturn(job)
+        doNothing().whenever(jobRepository).updateStatus(any(), any(), any())
 
         // Act
         calculationService.handleFlowCompletion(jobId, receivedItemCount)
 
         // Assert
-        verify { jobRepository.updateStatus(
+        verify(jobRepository).updateStatus(
             jobId,
             "FINISHED",
             "Stream completed."
-        )}
+        )
     }
 
     @Test
@@ -124,17 +139,17 @@ class CalculationServiceTest {
             status = "FAILED",
             statusMessage = "Previous error"
         )
-        every { jobRepository.findById(jobId) } returns job
+        whenever(jobRepository.findById(jobId)).thenReturn(job)
 
         // Act
         calculationService.handleFlowCompletion(jobId, receivedItemCount)
 
         // Assert
-        verify(exactly = 0) { jobRepository.updateStatus(
+        verify(jobRepository, never()).updateStatus(
             jobId,
             "FINISHED",
             "Stream completed."
-        )}
+        )
     }
 
     @Test
@@ -149,18 +164,18 @@ class CalculationServiceTest {
             inputCount = 5,
             status = "PROCESSING"
         )
-        every { jobRepository.findById(jobId) } returns job
-        every { jobRepository.updateStatus(any(), any(), any()) } returns Unit
+        whenever(jobRepository.findById(jobId)).thenReturn(job)
+        doNothing().whenever(jobRepository).updateStatus(any(), any(), any())
 
         // Act
         calculationService.handleProcessingException(jobId, exception)
 
         // Assert
-        verify { jobRepository.updateStatus(
+        verify(jobRepository).updateStatus(
             jobId,
             "FAILED",
             "Processing error: Test error"
-        )}
+        )
     }
 
     @Test
@@ -176,16 +191,16 @@ class CalculationServiceTest {
             status = "FAILED",
             statusMessage = "Previous error"
         )
-        every { jobRepository.findById(jobId) } returns job
+        whenever(jobRepository.findById(jobId)).thenReturn(job)
 
         // Act
         calculationService.handleProcessingException(jobId, exception)
 
         // Assert
-        verify(exactly = 0) { jobRepository.updateStatus(
+        verify(jobRepository, never()).updateStatus(
             jobId,
             "FAILED",
             "Processing error: Test error"
-        )}
+        )
     }
 }
