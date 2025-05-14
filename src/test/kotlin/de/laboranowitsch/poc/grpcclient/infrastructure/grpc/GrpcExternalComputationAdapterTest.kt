@@ -39,12 +39,17 @@ class GrpcExternalComputationAdapterTest {
     fun `processCalculation should return flow from client stub`() {
         runBlocking {
             // Arrange
-            val request = CalculationRequest.newBuilder()
-                .setJobId("test-job-1")
-                .build()
+            val request = CalculationRequest.newBuilder().apply {
+                jobId = "test-job-1"
+            }.build()
 
-            val response = CalculationResponse.newBuilder().build()
-            whenever(clientStub.processCalculation(any(), any())).thenReturn(flowOf(response))
+            val response = CalculationResponse.newBuilder().apply {}.build()
+            whenever(
+                clientStub.processCalculation(
+                    any(),
+                    any(),
+                ),
+            ).thenReturn(flowOf(response))
 
             // Act
             val result = adapter.processCalculation(request)
@@ -59,14 +64,19 @@ class GrpcExternalComputationAdapterTest {
     fun `processCalculation should handle StatusRuntimeException with INVALID_ARGUMENT`() {
         runBlocking {
             // Arrange
-            val request = CalculationRequest.newBuilder()
-                .setJobId("test-job-2")
-                .build()
+            val request = CalculationRequest.newBuilder().apply {
+                jobId = "test-job-2"
+            }.build()
 
             val exception = StatusRuntimeException(
-                Status.INVALID_ARGUMENT.withDescription("Invalid input")
+                Status.INVALID_ARGUMENT.withDescription("Invalid input"),
             )
-            whenever(clientStub.processCalculation(any(), any())).thenThrow(exception)
+            whenever(
+                clientStub.processCalculation(
+                    any(),
+                    any(),
+                ),
+            ).thenThrow(exception)
 
             // Act & Assert
             val thrownException = assertThrows<RuntimeException> {
@@ -82,14 +92,19 @@ class GrpcExternalComputationAdapterTest {
     fun `processCalculation should handle StatusRuntimeException with UNAVAILABLE`() {
         runBlocking {
             // Arrange
-            val request = CalculationRequest.newBuilder()
-                .setJobId("test-job-3")
-                .build()
+            val request = CalculationRequest.newBuilder().apply {
+                jobId = "test-job-3"
+            }.build()
 
             val exception = StatusRuntimeException(
                 Status.UNAVAILABLE.withDescription("Service unavailable")
             )
-            whenever(clientStub.processCalculation(any(), any())).thenThrow(exception)
+            whenever(
+                clientStub.processCalculation(
+                    any(),
+                    any(),
+                ),
+            ).thenThrow(exception)
 
             // Act & Assert
             val thrownException = assertThrows<RuntimeException> {
@@ -105,12 +120,17 @@ class GrpcExternalComputationAdapterTest {
     fun `processCalculation should handle generic exception`() {
         runBlocking {
             // Arrange
-            val request = CalculationRequest.newBuilder()
-                .setJobId("test-job-4")
-                .build()
+            val request = CalculationRequest.newBuilder().apply {
+                jobId = "test-job-4"
+            }.build()
 
             val exception = RuntimeException("Generic error")
-            whenever(clientStub.processCalculation(any(), any())).thenThrow(exception)
+            whenever(
+                clientStub.processCalculation(
+                    any(),
+                    any(),
+                ),
+            ).thenThrow(exception)
 
             // Act & Assert
             val thrownException = assertThrows<RuntimeException> {
